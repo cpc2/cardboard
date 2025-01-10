@@ -5,7 +5,6 @@ from typing import List, Optional
 import requests
 
 from chat.service import ChatService
-from puzzles.puzzle_tag import PuzzleTag
 
 DISCORD_BASE_API_URL = "https://discord.com/api"
 
@@ -13,6 +12,14 @@ CHANNEL_CATEGORY_TYPE = 4
 CHANNEL_TEXT_TYPE = 0
 CHANNEL_VOICE_TYPE = 2
 CHANNEL_FORUM_TYPE = 15
+
+# Tag IDs
+NEW_TAG = 1320198250489319434
+WORKING_TAG = 1320199606243561513
+EXTRACTING_TAG = 1320199821130203167
+STUCK_TAG = 1320199859961200710
+SOLVED_TAG = 1320199886192250990
+ABANDONED_TAG = 1320565939443470407
 
 class DiscordChatService(ChatService):
     """Discord service proxy.
@@ -47,175 +54,163 @@ class DiscordChatService(ChatService):
 
     def send_message(self, channel_id, msg, embedded_urls={}):
         """
-        Edits forum post identified by channel_id.
+        Sends msg to specified channel_id.
         embedded_urls is a map mapping display_text to url.
         e.g. { "Join voice channel": "https://discord.gg/XXX" }
         """
         try:
             embeds = self._make_link_embeds(embedded_urls)
-            requests.patch(
-                f"{DISCORD_BASE_API_URL}/channels/{channel_id}",
+            requests.post(
+                f"{DISCORD_BASE_API_URL}/channels/{channel_id}/messages",
                 headers=self._headers,
                 json={"content": msg, "embeds": embeds},
                 timeout=5,
             )
         except Exception as e:
-            print(f"Error sending message to discord forum post: {e}")
+            print(f"Error sending discord message: {e}")
 
     def announce(self, puzzle_announcements_id, msg, embedded_urls={}):
         if puzzle_announcements_id:
             self.send_message(puzzle_announcements_id, msg, embedded_urls)
         return
 
-    # Forum-related methods:
-
-    def create_forum_channel(self, guild_id, forum_name):
-        """Creates a new forum channel in the guild."""
+    def create_forum(self, guild_id, name):
         if not guild_id:
             raise Exception("Missing guild_id")
 
-        return self._create_channel_impl(
-            guild_id, forum_name, chan_type=CHANNEL_FORUM_TYPE
+        return self._create_channel(
+            guild_id,
+            name,
+            chan_type=CHANNEL_FORUM_TYPE,
         )
 
-    def _get_or_create_forum_channel(self, guild_id, forum_name):
+    def create_post(self, forum_channel_id, name, content, tags, embedded_urls={}):
         """
-        Returns id for forum channel. If it doesn't exist, a new one is created.
+        Creates a post in a forum channel.
+        Returns the post id.
         """
-        all_channels = self._get_channels_for_guild(guild_id)
-        forum_channels = [
-            c
-            for c in all_channels
-            if c["name"] == forum_name and c["type"] == CHANNEL_FORUM_TYPE
-        ]
-
-        if len(forum_channels) > 0:
-            return forum_channels[0]["id"]
-
-        return self.create_forum_channel(guild_id, forum_name)
-
-    def create_forum_post(
-        self, forum_channel_id, puzzle_name, content, tag_ids, puzzle
-    ):
-        """Creates a new post in the specified forum channel."""
         try:
-            applied_tags = []
-            if tag_ids is not None:
-                applied_tags = [str(tag_id) for tag_id in tag_ids]
+            embeds = self._make_link_embeds(embedded_urls)
+            payload = {
+                "name": name,
+                "message": {"content": content, "embeds": embeds},
+                "applied_tags": tags,
+            }
+
             response = requests.post(
                 f"{DISCORD_BASE_API_URL}/channels/{forum_channel_id}/threads",
                 headers=self._headers,
-                json={
-                    "name": puzzle_name,
-                    "message": {
-                        "content": content,
-                        "embeds": self._make_link_embeds(
-                            puzzle.create_field_url_map()
-                        ),
-                    },
-                    "applied_tags": applied_tags,
-                },
+                json=payload,
                 timeout=5,
             )
-            json_dict = json.loads(response.content.decode("utf-8"))
+            json_dict = response.json()
+
             if "id" in json_dict:
-                thread_id = json_dict["id"]
-                thread_url = self.create_channel_url(
-                    self.get_guild_id(puzzle), thread_id
-                )
-                return thread_id, thread_url
-            print(f"Unable to create forum post for {puzzle_name}")
+                return json_dict["id"]
+            print(f"Unable to create post in forum {forum_channel_id}")
         except Exception as e:
-            print(f"Error creating forum post: {e}")
+            print(f"Error creating post: {e}")
+            print(response.content)
 
-    def edit_forum_post(self, post_id, new_content, embedded_urls):
-        """Updates the content of a forum post."""
-        self.send_message(post_id, new_content, embedded_urls)
-
-    def add_tag_to_post(self, post_id, tag_id):
-        """Adds a tag to a forum post."""
-        if tag_id is None:
-            return
-        try:
-            response = requests.get(
-                f"{DISCORD_BASE_API_URL}/channels/{post_id}",
-                headers=self._headers,
-                timeout=5,
-            )
-            json_dict = json.loads(response.content.decode("utf-8"))
-            applied_tags = []
-            if "applied_tags" in json_dict:
-                applied_tags = json_dict["applied_tags"]
-
-            if str(tag_id) not in applied_tags:
-                applied_tags.append(str(tag_id))
-                requests.patch(
-                    f"{DISCORD_BASE_API_URL}/channels/{post_id}",
-                    headers=self._headers,
-                    json={"applied_tags": applied_tags},
-                    timeout=5,
-                )
-
-        except Exception as e:
-            print(f"Error adding tag to post: {e}")
-
-    def remove_tag_from_post(self, post_id, tag_id):
-        """Removes a tag from a forum post."""
-        if tag_id is None:
-            return
-        try:
-            response = requests.get(
-                f"{DISCORD_BASE_API_URL}/channels/{post_id}",
-                headers=self._headers,
-                timeout=5,
-            )
-            json_dict = json.loads(response.content.decode("utf-8"))
-            applied_tags = []
-            if "applied_tags" in json_dict:
-                applied_tags = json_dict["applied_tags"]
-
-            if str(tag_id) in applied_tags:
-                applied_tags.remove(str(tag_id))
-                requests.patch(
-                    f"{DISCORD_BASE_API_URL}/channels/{post_id}",
-                    headers=self._headers,
-                    json={"applied_tags": applied_tags},
-                    timeout=5,
-                )
-        except Exception as e:
-            print(f"Error removing tag from post: {e}")
-
-    def edit_forum_post_name(self, post_id, new_name):
-        """Renames a forum post."""
+    def edit_post_tags(self, post_id, tags):
+        """
+        Edits the tags of a post.
+        """
         try:
             requests.patch(
                 f"{DISCORD_BASE_API_URL}/channels/{post_id}",
                 headers=self._headers,
-                json={"name": new_name},
+                json={"applied_tags": tags},
                 timeout=5,
             )
         except Exception as e:
-            print(f"Error renaming forum post: {e}")
-
-    # Methods no longer used (or significantly modified):
-
-    def create_text_channel(self, guild_id, name, text_category_name="text"):
-        raise NotImplementedError("Use create_forum_channel instead")
-
-    def get_text_channel_participants(self, channel_id):
-        return []  # Not applicable to forum posts
+            print(f"Error editing post tags: {e}")
+    
+    def rename_post(self, post_id, new_name):
+        try:
+            requests.patch(
+                f"{DISCORD_BASE_API_URL}/channels/{post_id}",
+                headers=self._headers,
+                json={
+                    "name": new_name
+                },
+                timeout=5
+            )
+        except Exception as e:
+            print(f"Error renaming post: {e}")
+    
+    def get_text_channel_participants(self, channel_id) -> Optional[List[str]]:
+        # try:
+        #     response = requests.get(
+        #         f"{DISCORD_BASE_API_URL}/channels/{channel_id}/messages",
+        #         headers=self._headers,
+        #         timeout=5,
+        #     )
+        #     messages = json.loads(response.content.decode("utf-8"))
+        #     usernames = [
+        #         m["author"]["username"] for m in messages if not m["author"]["bot"]
+        #     ]
+        #     return list(set(usernames))
+        # except Exception as e:
+        #     print(f"Error getting channel messages: {e}")
+        return None
 
     def delete_text_channel(self, channel_id):
-        pass  # Not implemented
+        # self.delete_channel(channel_id)
+        return
 
     def create_audio_channel(self, guild_id, name, voice_category_name="voice"):
-        raise NotImplementedError("Audio channels are not used")
+        # if not guild_id:
+        #     raise Exception("Missing guild_id")
+
+        # return self._create_channel(
+        #     guild_id,
+        #     name,
+        #     chan_type=CHANNEL_VOICE_TYPE,
+        #     parent_name=voice_category_name,
+        # )
+        return None
 
     def delete_audio_channel(self, channel_id):
-        pass  # Not implemented
+        # self.delete_channel(channel_id)
+        pass
 
     def delete_channel(self, channel_id):
-        pass  # Not implemented
+        # try:
+        #     requests.delete(
+        #         f"{DISCORD_BASE_API_URL}/channels/{channel_id}",
+        #         headers=self._headers,
+        #         timeout=5,
+        #     )
+        # except Exception as e:
+        #     print(f"Error deleting channel: {e}")
+        pass
+
+    def _get_or_create_category(self, guild_id, category_name):
+        """
+        Returns id for category that has fewer than _max_channels_per_category. If none
+        exists, a new one is created.
+        """
+        # all_channels = self._get_channels_for_guild(guild_id)
+        # num_children_per_parent = defaultdict(int)
+        # category_channels = []
+        # for c in all_channels:
+        #     if c["name"] == category_name and c["type"] == CHANNEL_CATEGORY_TYPE:
+        #         category_channels.append(c)
+        #     if "parent_id" in c:
+        #         num_children_per_parent[c["parent_id"]] += 1
+
+        # for parent in category_channels:
+        #     if num_children_per_parent[parent["id"]] < self._max_channels_per_category:
+        #         return parent["id"]
+
+        # return self._create_channel_impl(
+        #     guild_id,
+        #     category_name,
+        #     CHANNEL_CATEGORY_TYPE,
+        #     parent_id=None,
+        # )
+        return None
 
     def _create_channel_impl(self, guild_id, name, chan_type, parent_id=None):
         """
@@ -235,22 +230,50 @@ class DiscordChatService(ChatService):
         except Exception as e:
             print(f"Error creating channel: {e}")
 
+    def _create_channel(self, guild_id, name, chan_type, parent_name=None):
+        """
+        Returns channel id
+        """
+        # parent_id = None
+        # if parent_name:
+        #     # Use a Discord category as the parent folder for this channel.
+        #     parent_id = self._get_or_create_category(guild_id, parent_name)
+        return self._create_channel_impl(guild_id, name, chan_type, None)
+
     def _modify_channel_parent(self, channel_id, parent_id):
-        raise NotImplementedError("Not applicable to forum posts")
+        # try:
+        #     requests.patch(
+        #         f"{DISCORD_BASE_API_URL}/channels/{channel_id}",
+        #         headers=self._headers,
+        #         json={
+        #             "parent_id": parent_id,
+        #         },
+        #         timeout=5,
+        #     )
+        # except Exception as e:
+        #     print(f"Error categorizing channel: {e}")
+        pass
 
     def categorize_channel(self, guild_id, channel_id, category_name):
-        raise NotImplementedError("Not applicable to forum posts")
+        # if not guild_id or not channel_id:
+        #     raise Exception("Missing guild_id or channel_id")
+        # parent_id = self._get_or_create_category(guild_id, category_name)
+        # self._modify_channel_parent(channel_id, parent_id)
+        return
 
     def archive_channel(self, guild_id, channel_id, discord_archive_category="archive"):
-        raise NotImplementedError("Not applicable to forum posts")
+        # self.categorize_channel(guild_id, channel_id, discord_archive_category)
+        pass
 
     def unarchive_text_channel(self, guild_id, channel_id, text_category_name="text"):
-        raise NotImplementedError("Not applicable to forum posts")
+        # self.categorize_channel(guild_id, channel_id, text_category_name)
+        pass
 
     def unarchive_voice_channel(
         self, guild_id, channel_id, voice_category_name="voice"
     ):
-        raise NotImplementedError("Not applicable to forum posts")
+        # self.categorize_channel(guild_id, channel_id, voice_category_name)
+        pass
 
     def _get_channels_for_guild(self, guild_id):
         if not guild_id:
@@ -267,11 +290,32 @@ class DiscordChatService(ChatService):
             print(f"Error getting channels from discord: {e}")
 
     def _create_channel_invite(self, channel_id, max_age=0):
-        raise NotImplementedError("Not needed for forum posts")
+        """
+        Returns invite code
+        """
+        # try:
+        #     response = requests.post(
+        #         f"{DISCORD_BASE_API_URL}/channels/{channel_id}/invites",
+        #         headers=self._headers,
+        #         json={"max_age": max_age},
+        #         timeout=5,
+        #     )
+        #     json_dict = json.loads(response.content.decode("utf-8"))
+        #     if "code" in json_dict:
+        #         return json_dict["code"]
+        # except Exception as e:
+        #     print(f"Error creating discord invite: {e}")
+        return None
 
     def create_channel_url(self, guild_id, channel_id, is_audio=False):
         if not guild_id or not channel_id:
             raise Exception("Missing guild_id or channel_id")
+        # Only generate invite links via discord API for voice channel invites.
+        # This is necessary because the manual link does not auto-join the channel.
+        # if is_audio:
+        #     invite_code = self._create_channel_invite(channel_id, max_age=0)
+        #     if invite_code:
+        #         return f"https://discord.gg/{invite_code}"
         return f"https://discord.com/channels/{guild_id}/{channel_id}"
 
     def handle_tag_added(self, puzzle_announcements_id, puzzle, tag_name):
@@ -287,10 +331,21 @@ class DiscordChatService(ChatService):
         return
 
     def handle_tag_removed(self, puzzle_announcements_id, puzzle, tag_name):
-        pass  # No specific logic needed here
+        pass
 
     def handle_puzzle_rename(self, channel_id, new_name):
-        self.edit_forum_post_name(channel_id, new_name)
+        # try:
+        #     requests.patch(
+        #         f"{DISCORD_BASE_API_URL}/channels/{channel_id}",
+        #         headers=self._headers,
+        #         json={
+        #             "name": new_name,
+        #         },
+        #         timeout=5,
+        #     )
+        # except Exception as e:
+        #     print(f"Error renaming channel: {e}")
+        pass
 
     def get_all_roles(self, guild_id):
         try:
@@ -318,6 +373,3 @@ class DiscordChatService(ChatService):
             return json.loads(response.content.decode("utf-8"))
         except Exception as e:
             print(f"Error creating Discord role: {e}")
-
-    def get_guild_id(self, puzzle):
-        return puzzle.hunt.settings.discord_guild_id
