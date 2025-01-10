@@ -13,7 +13,6 @@ from puzzles.puzzle_tag import PuzzleTag, PuzzleTagColor
 
 logger = logging.getLogger(__name__)
 
-
 def _get_puzzles_queryset(include_deleted=False):
     if include_deleted:
         manager = Puzzle.global_objects
@@ -21,7 +20,6 @@ def _get_puzzles_queryset(include_deleted=False):
         manager = Puzzle.objects
 
     return manager.select_related("chat_room").select_related("hunt__settings")
-
 
 @shared_task(rate_limit="6/m", acks_late=True, priority=TaskPriority.HIGH.value)
 def announce_puzzle_unlock(puzzle_id):
@@ -33,7 +31,6 @@ def announce_puzzle_unlock(puzzle_id):
         puzzle.chat_room.announce_message_with_embedded_urls(msg, puzzle)
     except Exception as e:
         logger.exception(f"announce_puzzle_unlock failed with error: {e}")
-
 
 @shared_task(rate_limit="6/m", acks_late=True, priority=TaskPriority.HIGH.value)
 def create_channels_for_puzzle(puzzle_id):
@@ -47,27 +44,26 @@ def create_channels_for_puzzle(puzzle_id):
     except Exception as e:
         logger.exception(f"create_channels_for_puzzle failed with error: {e}")
 
-
 @shared_task(rate_limit="6/m", acks_late=True)
 def cleanup_puzzle_channels(puzzle_id):
-    puzzle = (
-        _get_puzzles_queryset(include_deleted=True)
-        .prefetch_related(
-            Prefetch(
-                "guesses",
-                queryset=Answer.objects.filter(status=Answer.CORRECT),
-            )
-        )
-        .get(id=puzzle_id)
-    )
-    # check that puzzle wasn't unsolved between when task was queued and now
-    with transaction.atomic():
-        solved_time = puzzle.solved_time()
-        if solved_time is None and not puzzle.is_deleted:
-            return
+    # puzzle = (
+    #     _get_puzzles_queryset(include_deleted=True)
+    #     .prefetch_related(
+    #         Prefetch(
+    #             "guesses",
+    #             queryset=Answer.objects.filter(status=Answer.CORRECT),
+    #         )
+    #     )
+    #     .get(id=puzzle_id)
+    # )
+    # # check that puzzle wasn't unsolved between when task was queued and now
+    # with transaction.atomic():
+    #     solved_time = puzzle.solved_time()
+    #     if solved_time is None and not puzzle.is_deleted:
+    #         return
 
-        puzzle.chat_room.delete_channels(check_if_used=True)
-
+    #     puzzle.chat_room.delete_channels(check_if_used=True)
+    pass
 
 # Disco-py actually kills the process when it is rate limited instead of throwing an exception
 # acks_late=True and CELERY_TASK_REJECT_ON_WORKER_LOST in settings requeues those tasks
@@ -78,14 +74,14 @@ def handle_puzzle_meta_change(puzzle_id):
     """
     handles when the set of a puzzle's metas has changed OR the puzzle itself has toggled its is_meta state.
     """
-    puzzle = _get_puzzles_queryset().prefetch_related("metas").get(id=puzzle_id)
-    if not puzzle.chat_room:
-        return
-    try:
-        puzzle.chat_room.update_category()
-    except Exception as e:
-        logger.exception(f"handle_puzzle_meta_change failed with error: {e}")
-
+    # puzzle = _get_puzzles_queryset().prefetch_related("metas").get(id=puzzle_id)
+    # if not puzzle.chat_room:
+    #     return
+    # try:
+    #     puzzle.chat_room.update_category()
+    # except Exception as e:
+    #     logger.exception(f"handle_puzzle_meta_change failed with error: {e}")
+    pass
 
 @shared_task(rate_limit="6/m", acks_late=True)
 def handle_puzzle_solved(puzzle_id, answer_text):
@@ -93,12 +89,11 @@ def handle_puzzle_solved(puzzle_id, answer_text):
     if not puzzle.chat_room:
         return
     try:
-        puzzle.chat_room.archive_channels()
+        puzzle.chat_room.handle_puzzle_solved()
         msg = f"**{puzzle.name}** has been solved with `{answer_text}`!"
         puzzle.chat_room.send_and_announce_message_with_embedded_urls(msg, puzzle)
     except Exception as e:
         logger.exception(f"handle_puzzle_solved failed with error: {e}")
-
 
 @shared_task(rate_limit="6/m", acks_late=True)
 def handle_puzzle_unsolved(puzzle_id):
@@ -106,13 +101,12 @@ def handle_puzzle_unsolved(puzzle_id):
     if not puzzle.chat_room:
         return
     try:
-        puzzle.chat_room.unarchive_channels()
-        puzzle.chat_room.create_channels()
+        puzzle.chat_room.handle_puzzle_unsolved()
+        # puzzle.chat_room.create_channels()
         msg = f"**{puzzle.name}** is no longer solved!"
         puzzle.chat_room.send_and_announce_message_with_embedded_urls(msg, puzzle)
     except Exception as e:
         logger.exception(f"handle_puzzle_unsolved failed with error: {e}")
-
 
 @shared_task(rate_limit="6/m", acks_late=True)
 def handle_tag_added(puzzle_id, tag_name):
@@ -124,7 +118,6 @@ def handle_tag_added(puzzle_id, tag_name):
     except Exception as e:
         logger.exception(f"handle_tag_added failed with error: {e}")
 
-
 @shared_task(rate_limit="6/m", acks_late=True)
 def handle_tag_removed(puzzle_id, tag_name):
     puzzle = _get_puzzles_queryset().get(id=puzzle_id)
@@ -134,7 +127,6 @@ def handle_tag_removed(puzzle_id, tag_name):
         puzzle.chat_room.handle_tag_removed(puzzle, tag_name)
     except Exception as e:
         logger.exception(f"handle_tag_removed failed with error: {e}")
-
 
 @shared_task(rate_limit="6/m", acks_late=True)
 def handle_answer_change(puzzle_id, old_answer, new_answer):
@@ -149,7 +141,6 @@ def handle_answer_change(puzzle_id, old_answer, new_answer):
     except Exception as e:
         logger.exception(f"handle_answer_change failed with error: {e}")
 
-
 @shared_task(rate_limit="6/m", acks_late=True)
 def handle_puzzle_rename(puzzle_id, old_name, new_name):
     puzzle = _get_puzzles_queryset().get(id=puzzle_id)
@@ -162,7 +153,6 @@ def handle_puzzle_rename(puzzle_id, old_name, new_name):
     except Exception as e:
         logger.exception(f"handle_puzzle_rename failed with error: {e}")
 
-
 @shared_task(rate_limit="6/m", acks_late=True)
 def handle_sheet_created(puzzle_id):
     puzzle = _get_puzzles_queryset().get(id=puzzle_id)
@@ -174,10 +164,8 @@ def handle_sheet_created(puzzle_id):
     except Exception as e:
         logger.exception(f"handle_sheet_created failed with error: {e}")
 
-
 DISCORD_ROLE_COLOR_BLUE = 0x3498DB
 DISCORD_ROLE_COLOR_WHITE = 0xFFFFFF
-
 
 @shared_task(rate_limit="6/m", acks_late=True)
 def sync_roles(hunt_slug, service_name):
@@ -185,7 +173,7 @@ def sync_roles(hunt_slug, service_name):
 
     from chat.models import ChatRole
 
-    hunt = Hunt.get_object_or_404(slug=hunt_slug)
+    hunt = Hunt.objects.get(slug=hunt_slug)
 
     chat_service = settings.CHAT_SERVICES[service_name].get_instance()
     guild_id = hunt.settings.discord_guild_id
