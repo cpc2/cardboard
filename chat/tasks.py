@@ -28,15 +28,14 @@ def announce_puzzle_unlock(puzzle_id):
         return
     try:
         msg = f"**{puzzle.name}** has been unlocked!"
-        puzzle.chat_room.announce_message_with_embedded_urls(msg, puzzle)
+        # Send message to the forum post
+        puzzle.chat_room.send_message_with_embedded_urls(msg, puzzle)
     except Exception as e:
         logger.exception(f"announce_puzzle_unlock failed with error: {e}")
 
 @shared_task(rate_limit="6/m", acks_late=True, priority=TaskPriority.HIGH.value)
 def create_channels_for_puzzle(puzzle_id):
     puzzle = _get_puzzles_queryset().get(id=puzzle_id)
-    if not puzzle.chat_room:
-        return
     try:
         puzzle.chat_room.create_channels()
         msg = f"**{puzzle.name}** has been created!"
@@ -46,23 +45,7 @@ def create_channels_for_puzzle(puzzle_id):
 
 @shared_task(rate_limit="6/m", acks_late=True)
 def cleanup_puzzle_channels(puzzle_id):
-    # puzzle = (
-    #     _get_puzzles_queryset(include_deleted=True)
-    #     .prefetch_related(
-    #         Prefetch(
-    #             "guesses",
-    #             queryset=Answer.objects.filter(status=Answer.CORRECT),
-    #         )
-    #     )
-    #     .get(id=puzzle_id)
-    # )
-    # # check that puzzle wasn't unsolved between when task was queued and now
-    # with transaction.atomic():
-    #     solved_time = puzzle.solved_time()
-    #     if solved_time is None and not puzzle.is_deleted:
-    #         return
-
-    #     puzzle.chat_room.delete_channels(check_if_used=True)
+    # No-op: We are not deleting forum posts.
     pass
 
 # Disco-py actually kills the process when it is rate limited instead of throwing an exception
@@ -74,13 +57,7 @@ def handle_puzzle_meta_change(puzzle_id):
     """
     handles when the set of a puzzle's metas has changed OR the puzzle itself has toggled its is_meta state.
     """
-    # puzzle = _get_puzzles_queryset().prefetch_related("metas").get(id=puzzle_id)
-    # if not puzzle.chat_room:
-    #     return
-    # try:
-    #     puzzle.chat_room.update_category()
-    # except Exception as e:
-    #     logger.exception(f"handle_puzzle_meta_change failed with error: {e}")
+    # No-op: We are not implementing moving posts between forums.
     pass
 
 @shared_task(rate_limit="6/m", acks_late=True)
@@ -89,7 +66,20 @@ def handle_puzzle_solved(puzzle_id, answer_text):
     if not puzzle.chat_room:
         return
     try:
-        puzzle.chat_room.handle_puzzle_solved()
+        service = puzzle.chat_room.get_service()
+        # Add Solved tag and remove other status tags
+        service.add_tag_to_post(
+            puzzle.chat_room.text_channel_id, PuzzleTag.SOLVED_TAG_ID
+        )
+        for tag_id in [
+            PuzzleTag.NEW_TAG_ID,
+            PuzzleTag.WORKING_TAG_ID,
+            PuzzleTag.EXTRACTING_TAG_ID,
+            PuzzleTag.STUCK_TAG_ID,
+            PuzzleTag.ABANDONED_TAG_ID,
+        ]:
+            service.remove_tag_from_post(puzzle.chat_room.text_channel_id, tag_id)
+
         msg = f"**{puzzle.name}** has been solved with `{answer_text}`!"
         puzzle.chat_room.send_and_announce_message_with_embedded_urls(msg, puzzle)
     except Exception as e:
@@ -101,8 +91,15 @@ def handle_puzzle_unsolved(puzzle_id):
     if not puzzle.chat_room:
         return
     try:
-        puzzle.chat_room.handle_puzzle_unsolved()
-        # puzzle.chat_room.create_channels()
+        service = puzzle.chat_room.get_service()
+        # Remove Solved tag and add Working tag
+        service.remove_tag_from_post(
+            puzzle.chat_room.text_channel_id, PuzzleTag.SOLVED_TAG_ID
+        )
+        service.add_tag_to_post(
+            puzzle.chat_room.text_channel_id, PuzzleTag.WORKING_TAG_ID
+        )
+
         msg = f"**{puzzle.name}** is no longer solved!"
         puzzle.chat_room.send_and_announce_message_with_embedded_urls(msg, puzzle)
     except Exception as e:
@@ -160,6 +157,7 @@ def handle_sheet_created(puzzle_id):
         return
     try:
         msg = "Sheet has been created!"
+        # Send message to the forum post
         puzzle.chat_room.send_message(msg, embedded_urls={"Sheet": puzzle.sheet})
     except Exception as e:
         logger.exception(f"handle_sheet_created failed with error: {e}")
@@ -173,7 +171,7 @@ def sync_roles(hunt_slug, service_name):
 
     from chat.models import ChatRole
 
-    hunt = Hunt.objects.get(slug=hunt_slug)
+    hunt = Hunt.get_object_or_404(slug=hunt_slug)
 
     chat_service = settings.CHAT_SERVICES[service_name].get_instance()
     guild_id = hunt.settings.discord_guild_id
@@ -187,7 +185,7 @@ def sync_roles(hunt_slug, service_name):
 
     for tag in cardboard_tags:
         if (
-            tag.color != PuzzleTagColor.BLUE and tag.color != PuzzleTagColor.WHITE
+            tag.color != PuzzleTagColor.BLUE or tag.color != PuzzleTagColor.WHITE
         ) or tag.name not in default_tag_names:
             continue
 
