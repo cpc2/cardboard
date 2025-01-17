@@ -96,6 +96,7 @@ def handle_puzzle_solved(puzzle_id, answer_text):
         #puzzle.chat_room.archive_channels()
         msg = f"**{puzzle.name}** has been solved with `{answer_text}`!"
         puzzle.chat_room.send_and_announce_message_with_embedded_urls(msg, puzzle)
+        puzzle.chat_room.handle_puzzle_rename("✓" + puzzle.name)
     except Exception as e:
         logger.exception(f"handle_puzzle_solved failed with error: {e}")
 
