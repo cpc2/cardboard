@@ -102,14 +102,14 @@ class ChatRoom(SoftDeleteModel):
             )
             update_fields.extend(["text_channel_id", "text_channel_url"])
 
-        if self.audio_channel_id is None:
+        '''if self.audio_channel_id is None:
             self.audio_channel_id = service.create_audio_channel(
                 self.get_guild_id(), self.name, self._get_audio_category_name()
             )
             self.audio_channel_url = service.create_channel_url(
                 self.get_guild_id(), self.audio_channel_id, is_audio=True
             )
-            update_fields.extend(["audio_channel_id", "audio_channel_url"])
+            update_fields.extend(["audio_channel_id", "audio_channel_url"])'''
 
         self.save(update_fields=update_fields)
 
