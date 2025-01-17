@@ -100,12 +100,7 @@ class DiscordChatService(ChatService):
         if not guild_id:
             raise Exception("Missing guild_id")
 
-        return self._create_channel(
-            guild_id,
-            name,
-            chan_type=CHANNEL_VOICE_TYPE,
-            parent_name=voice_category_name,
-        )
+        return
 
     def delete_audio_channel(self, channel_id):
         self.delete_channel(channel_id)
@@ -241,9 +236,7 @@ class DiscordChatService(ChatService):
         # Only generate invite links via discord API for voice channel invites.
         # This is necessary because the manual link does not auto-join the channel.
         if is_audio:
-            invite_code = self._create_channel_invite(channel_id, max_age=0)
-            if invite_code:
-                return f"https://discord.gg/{invite_code}"
+            return
         return f"https://discord.com/channels/{guild_id}/{channel_id}"
 
     def handle_tag_added(self, puzzle_announcements_id, puzzle, tag_name):

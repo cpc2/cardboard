@@ -66,7 +66,7 @@ def cleanup_puzzle_channels(puzzle_id):
         if solved_time is None and not puzzle.is_deleted:
             return
 
-        puzzle.chat_room.delete_channels(check_if_used=True)
+        #puzzle.chat_room.delete_channels(check_if_used=True)
 
 
 # Disco-py actually kills the process when it is rate limited instead of throwing an exception
@@ -93,7 +93,7 @@ def handle_puzzle_solved(puzzle_id, answer_text):
     if not puzzle.chat_room:
         return
     try:
-        puzzle.chat_room.archive_channels()
+        #puzzle.chat_room.archive_channels()
         msg = f"**{puzzle.name}** has been solved with `{answer_text}`!"
         puzzle.chat_room.send_and_announce_message_with_embedded_urls(msg, puzzle)
     except Exception as e:
@@ -106,7 +106,7 @@ def handle_puzzle_unsolved(puzzle_id):
     if not puzzle.chat_room:
         return
     try:
-        puzzle.chat_room.unarchive_channels()
+        #puzzle.chat_room.unarchive_channels()
         puzzle.chat_room.create_channels()
         msg = f"**{puzzle.name}** is no longer solved!"
         puzzle.chat_room.send_and_announce_message_with_embedded_urls(msg, puzzle)
