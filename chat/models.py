@@ -252,7 +252,7 @@ class ChatRoom(SoftDeleteModel):
     def handle_puzzle_rename(self, new_name):
         service = self.get_service()
         service.handle_puzzle_rename(self.text_channel_id, new_name)
-        service.handle_puzzle_rename(self.audio_channel_id, new_name)
+        #service.handle_puzzle_rename(self.audio_channel_id, new_name)
 
 
 class ChatRole(models.Model):
